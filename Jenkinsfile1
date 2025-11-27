@@ -2,68 +2,79 @@ pipeline {
     agent any
     
     stages {
-        stage('Create  directory for the WEB Application')        
-       {
+        stage('Create directory for the WEB Application') {
             steps {
-                //First, drop the directory if exists
-                sh 'rm -rf /home/jenkins/app-web'
-                //Create the directory
-                sh 'mkdir /home/jenkins/app-web'               
+                // No host directory needed anymore – just a sanity check on the repo
+                echo 'Verifying web directory in workspace...'
+                sh 'ls -R web || echo "WARNING: web directory not found"'
             }
         }
-        stage('Drop the containers'){   
-            parallel{
-                stage('Drop apache container'){
+
+        stage('Drop the containers') {   
+            parallel {
+                stage('Drop Apache container') {
                     steps {
-                        echo 'droping the Apache container...'
-                        sh 'docker rm -f app-web-apache'
+                        echo 'Dropping the Apache container (if it exists)...'
+                        // Do not fail the build if the container does not exist
+                        sh 'docker rm -f app-web-apache 2>/dev/null || true'
                     }
                 }
-                stage('Drop Nginx Container'){
-                    steps{
-                        echo 'droping the Nginx container...'
-                        sh 'docker rm -f app-web-nginx'
+                stage('Drop Nginx Container') {
+                    steps {
+                        echo 'Dropping the Nginx container (if it exists)...'
+                        sh 'docker rm -f app-web-nginx 2>/dev/null || true'
                     }
                 }           
             }
         }
-        //Creating the containers in Parallel
+
+        // Creating the containers in Parallel
         stage('Create the containers in Parallel') {
-            parallel{
-                stage('Create the Apache container')
-                {           
+            parallel {
+                stage('Create the Apache container') {           
                     steps {
-                    echo 'Creating the Apache Container...'
-                    sh 'docker run -dit --name app-web-apache -p 9100:80  -v /home/jenkins/app-web:/usr/local/apache2/htdocs/ httpd'
+                        echo 'Creating the Apache container...'
+                        sh '''
+                            docker run -dit --name app-web-apache \
+                              -p 9100:80 \
+                              httpd
+                        '''
                     }
                 }
                 stage('Create the Nginx container') {
-                   steps {
-                   echo 'Creating the Apache container...'
-                   sh 'docker run -dit --name app-web-nginx -p 9200:80  -v /home/jenkins/app-web:/usr/share/nginx/html nginx'         
-                   }
+                    steps {
+                        echo 'Creating the Nginx container...'
+                        sh '''
+                            docker run -dit --name app-web-nginx \
+                              -p 9200:80 \
+                              nginx
+                        '''
+                    }
                 }       
             }   
         }
-        //Copy the application   
+
+        // Copy the application   
         stage('Copy the web application to the container directory') {
             steps {
-                echo 'Copying web application...'             
-                sh 'cp -r web/* /home/jenkins/app-web'
+                echo 'Copying web application into Apache and Nginx containers...'
+                sh '''
+                    # Copy the CONTENTS of web/ into each container docroot
+                    docker cp web/. app-web-apache:/usr/local/apache2/htdocs/
+                    docker cp web/. app-web-nginx:/usr/share/nginx/html/
+                '''
             }
         }
     }
 
     post {              
         success {
-        // One or more steps need to be included within each condition's block.
-          echo 'The deployment in Nginx and Apache has worked'
-          archiveArtifacts allowEmptyArchive: true, artifacts: 'web/*', followSymlinks: false
-          cleanWs()         
-       }
-       failure {
-        // One or more steps need to be included within each condition's block.
-        echo 'An error has ocurred in the deploy'       
-       }
+            echo 'The deployment in Nginx and Apache has worked'
+            archiveArtifacts allowEmptyArchive: true, artifacts: 'web/*', followSymlinks: false
+            cleanWs()         
+        }
+        failure {
+            echo 'An error has ocurred in the deploy'
+        }
     }
 }
