@@ -1,18 +1,18 @@
 pipeline {
     agent any
 
+    // Directory that both Jenkins and Docker share (inside /var/jenkins_home)
     environment {
-        WEB_DIR = '/home/jenkins/app-web'
+        APP_DIR = "${env.WORKSPACE}/app-web"
     }
 
     stages {
         stage('Create directory for the WEB Application') {
             steps {
                 sh '''
-                    # Remove directory if it exists
-                    rm -rf "$WEB_DIR"
-                    # (Re)create directory
-                    mkdir -p "$WEB_DIR"
+                    # Clean and recreate the app directory
+                    rm -rf "$APP_DIR"
+                    mkdir -p "$APP_DIR"
                 '''
             }
         }
@@ -20,7 +20,7 @@ pipeline {
         stage('Drop the containers') {
             steps {
                 echo 'Dropping the containers (if they exist)...'
-                // Do not fail the build if the containers don’t exist
+                // Do not fail the build if containers are not present
                 sh '''
                     docker rm -f app-web-apache || true
                     docker rm -f app-web-nginx  || true
@@ -28,7 +28,7 @@ pipeline {
             }
         }
 
-        // Creating the containers in parallel
+        // Creating the containers in Parallel
         stage('Create the containers in Parallel') {
             parallel {
                 stage('Create the Apache container') {
@@ -37,7 +37,7 @@ pipeline {
                         sh '''
                             docker run -dit --name app-web-apache \
                               -p 9100:80 \
-                              -v "$WEB_DIR":/usr/local/apache2/htdocs/ \
+                              -v "$APP_DIR":/usr/local/apache2/htdocs/ \
                               httpd
                         '''
                     }
@@ -48,7 +48,7 @@ pipeline {
                         sh '''
                             docker run -dit --name app-web-nginx \
                               -p 9200:80 \
-                              -v "$WEB_DIR":/usr/share/nginx/html \
+                              -v "$APP_DIR":/usr/share/nginx/html \
                               nginx
                         '''
                     }
@@ -61,10 +61,10 @@ pipeline {
             steps {
                 echo 'Copying web application...'
                 sh '''
-                    # Ensure target is clean
-                    rm -rf "$WEB_DIR"/*
-                    # Copy the CONTENTS of web/ to the app-web directory
-                    cp -r web/. "$WEB_DIR"/
+                    # Make sure target dir is clean
+                    rm -rf "$APP_DIR"/*
+                    # Copy the CONTENTS of web/ into the shared directory
+                    cp -r web/. "$APP_DIR"/
                 '''
             }
         }
