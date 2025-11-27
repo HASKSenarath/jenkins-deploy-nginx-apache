@@ -1,38 +1,37 @@
 pipeline {
     agent any
-    
-    stages {
-        stage('Create directory for the WEB Application') {
-            steps {
-                // We don't need a host directory anymore, just make sure the repo has "web"
-                echo 'Verifying web directory in workspace...'
-                sh 'ls -R web || echo "WARNING: web directory not found"'
-            }
-        }
 
-        stage('Drop the containers') {   
+    // Make all parallel branches fail fast if one fails
+    options {
+        parallelsAlwaysFailFast()
+    }
+
+    stages {
+        stage('Drop the containers') {
             parallel {
                 stage('Drop Apache container') {
                     steps {
                         echo 'Dropping the Apache container (if it exists)...'
-                        // Fix typo: "ocker" -> "docker", and avoid failure if not present
-                        sh 'docker rm -f app-web-apache 2>/dev/null || true'
+                        // Do not fail if container does not exist
+                        sh '''
+                            docker rm -f app-web-apache 2>/dev/null || true
+                        '''
                     }
                 }
-                stage('Drop Nginx Container') {
+                stage('Drop Nginx container') {
                     steps {
                         echo 'Dropping the Nginx container (if it exists)...'
-                        sh 'docker rm -f app-web-nginx 2>/dev/null || true'
+                        sh '''
+                            docker rm -f app-web-nginx 2>/dev/null || true
+                        '''
                     }
                 }
-                failFast true
             }
         }
 
-        // Creating the containers in Parallel
         stage('Create the containers in Parallel') {
             parallel {
-                stage('Create the Apache container') {           
+                stage('Create the Apache container') {
                     steps {
                         echo 'Creating the Apache container...'
                         sh '''
@@ -43,24 +42,24 @@ pipeline {
                     }
                 }
                 stage('Create the Nginx container') {
-                   steps {
-                       echo 'Creating the Nginx container...'
-                       sh '''
-                           docker run -dit --name app-web-nginx \
-                             -p 9200:80 \
-                             nginx
-                       '''
-                   }
-                }       
-            }   
+                    steps {
+                        echo 'Creating the Nginx container...'
+                        sh '''
+                            docker run -dit --name app-web-nginx \
+                              -p 9200:80 \
+                              nginx
+                        '''
+                    }
+                }
+            }
         }
 
-        // Copy the application   
-        stage('Copy the web application to the container directory') {
+        stage('Copy the web application to the containers') {
             steps {
                 echo 'Copying web application into Apache and Nginx containers...'
                 sh '''
-                    # Copy the CONTENTS of the "web" folder into each container's docroot
+                    # Copy the CONTENTS of the "web" folder in this repo
+                    # into each container's document root.
                     docker cp web/. app-web-apache:/usr/local/apache2/htdocs/
                     docker cp web/. app-web-nginx:/usr/share/nginx/html/
                 '''
@@ -68,14 +67,14 @@ pipeline {
         }
     }
 
-    post {              
+    post {
         success {
             echo 'The deployment in Nginx and Apache has worked'
-            archiveArtifacts allowEmptyArchive: true, artifacts: 'web/*', followSymlinks: false
-            cleanWs()         
+            archiveArtifacts allowEmptyArchive: true, artifacts: 'web/**', followSymlinks: false
+            cleanWs()
         }
         failure {
-            echo 'An error has ocurred in the deploy'
+            echo 'An error has occurred in the deploy'
         }
     }
 }
